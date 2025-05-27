@@ -1,5 +1,7 @@
 # Discord OIDC Provider for Cloudflare Access
 
+> A slightly customized version of the Discord OIDC provider designed to run on localhost. This can provide a Discord OIDC endpoint for use with other OIDC applications in a homelab environment. I've tried to make very small changes since I've not used Node before and I'm not looking to learn a new language atm.
+
 Simply put: Allows you to authorise with Cloudflare Access using your Discord account via a Cloudflare Worker. Wraps OIDC around the Discord OAuth2 API to achieve this, storing signing keys in KV. 
 
 Process flow was inspired by [kimcore/discord-oidc](https://github.com/kimcore/discord-oidc) but rewritten entirely for [Cloudflare Workers](https://workers.cloudflare.com/) and [Hono](https://honojs.dev/).

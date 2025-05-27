@@ -1,6 +1,11 @@
-import * as config from './config.json'
+import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import * as jose from 'jose'
+import 'dotenv/config'
+import * as fs from 'node:fs/promises'
+import { logger } from 'hono/logger'
+
+const config = process.env;
 
 const algorithm = {
 	name: 'RSASSA-PKCS1-v1_5',
@@ -16,27 +21,30 @@ const importAlgo = {
 
 async function loadOrGenerateKeyPair(KV) {
 	let keyPair = {}
-	let keyPairJson = await KV.get('keys', { type: 'json' })
+	try {
+		let keyPairJson = await fs.readFile("keys.json")
+		keyPairJson = JSON.parse(keyPairJson);
+		if (keyPairJson !== null) {
+			keyPair.publicKey = await crypto.subtle.importKey('jwk', keyPairJson.publicKey, importAlgo, true, ['verify'])
+			keyPair.privateKey = await crypto.subtle.importKey('jwk', keyPairJson.privateKey, importAlgo, true, ['sign'])
 
-	if (keyPairJson !== null) {
-		keyPair.publicKey = await crypto.subtle.importKey('jwk', keyPairJson.publicKey, importAlgo, true, ['verify'])
-		keyPair.privateKey = await crypto.subtle.importKey('jwk', keyPairJson.privateKey, importAlgo, true, ['sign'])
+			return keyPair
+		}
+	} catch (err) { console.error(err); }
 
-		return keyPair
-	} else {
-		keyPair = await crypto.subtle.generateKey(algorithm, true, ['sign', 'verify'])
+	keyPair = await crypto.subtle.generateKey(algorithm, true, ['sign', 'verify'])
 
-		await KV.put('keys', JSON.stringify({
-			privateKey: await crypto.subtle.exportKey('jwk', keyPair.privateKey),
-			publicKey: await crypto.subtle.exportKey('jwk', keyPair.publicKey)
-		}))
+	await fs.writeFile("keys.json", JSON.stringify({
+		privateKey: await crypto.subtle.exportKey('jwk', keyPair.privateKey),
+		publicKey: await crypto.subtle.exportKey('jwk', keyPair.publicKey)
+	}))
 
-		return keyPair
-	}
+	return keyPair
 
 }
 
 const app = new Hono()
+app.use(logger())
 
 app.get('/authorize/:scopemode', async (c) => {
 
@@ -133,6 +141,7 @@ app.post('/token', async (c) => {
 
 	const idToken = await new jose.SignJWT({
 		iss: 'https://cloudflare.com',
+		sub: userInfo['id'],
 		aud: config.clientId,
 		preferred_username,
 		...userInfo,
@@ -146,6 +155,12 @@ app.post('/token', async (c) => {
 		.setExpirationTime('1h')
 		.setAudience(config.clientId)
 		.sign((await loadOrGenerateKeyPair(c.env.KV)).privateKey)
+	
+	console.log(JSON.stringify({
+		...r,
+		scope: 'identify email',
+		id_token: idToken
+	}))
 
 	return c.json({
 		...r,
@@ -165,4 +180,57 @@ app.get('/jwks.json', async (c) => {
 	})
 })
 
-export default app
+app.get("/.well-known/openid-configuration", async (c) => {
+	const url = new URL(c.req.url)
+	return c.json({
+		issuer: `https://${url.hostname}`,
+		authorization_endpoint: `https://${url.hostname}/authorize/guilds`,
+		token_endpoint: `https://${url.hostname}/token`,
+		userinfo_endpoint: `https://${url.hostname}/userinfo`, // not yet implemented
+		jwks_uri: `https://${url.hostname}/jwks.json`,
+		scopes_supported: [
+			"openid",
+			"email",
+			"profile"
+		],
+		response_types_supported: [
+			"code"
+		],
+		token_endpoint_auth_methods_supported: [
+			"client_secret_post"
+		],
+		claims_supported: [
+			"iss",
+			"sub",
+			"aud",
+			"exp",
+			"name",
+			"username",
+			"email",
+			"id",
+			"guilds"
+		],
+		claim_types_supported: [
+			"normal"
+		],
+		subject_types_supported: [
+			"public"
+		],
+		grant_types_supported: [
+			"authorization_code"
+		],
+		id_token_signing_alg_values_supported: [
+			"RS256"
+		],
+		code_challenge_methods_supported: [
+			"plain"
+		]
+	})
+})
+
+serve({
+  fetch: app.fetch,
+  port: 3000
+}, (info) => {
+  console.log(`Server is running on http://localhost:${info.port}`)
+})

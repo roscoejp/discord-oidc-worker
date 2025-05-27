@@ -1,0 +1,15 @@
+# docker run --rm -it --entrypoint /bin/bash -w /app -v ./:/app node
+services:
+  discord-oidc:
+    container_name: discord-oidc
+    image: node
+    ports:
+      - "9091:3000"
+    volumes:
+      - ./:/app
+    working_dir: /app
+    entrypoint: ["npm", "start"]
+    labels:
+      - cloudflare.tunnel.enable=true
+      - cloudflare.tunnel.hostname=discord-oidc.reliantrobin.org
+      - cloudflare.tunnel.service=192.168.0.20:9091
